@@ -35,5 +35,6 @@ test-workspace/
 
 # LocalLeaf link metadata for this development checkout
 .localleaf/
+.output/
 .leafignore
 /test/

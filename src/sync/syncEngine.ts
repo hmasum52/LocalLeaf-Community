@@ -207,6 +207,8 @@ export class SyncEngine {
     private stateStore?: SyncStateStore;
     private readonly fileErrors = new Map<string, string>();
     private readonly localEventTimers = new Map<string, NodeJS.Timeout>();
+    private readonly localOperations = new Set<Promise<void>>();
+    private localChangeGeneration = 0;
 
     readonly onStatusChange = this._onStatusChange.event;
 
@@ -681,7 +683,7 @@ export class SyncEngine {
 
         const run = (operation: () => Promise<void>) => {
             if (!this.automaticSyncEnabled) return;
-            void operation().catch(error => {
+            const pending = operation().catch(error => {
                 if (!this.disposed) {
                     console.error('[LocalLeaf] Local filesystem event failed:', error);
                     const authErr = isAuthError(error);
@@ -692,7 +694,8 @@ export class SyncEngine {
                         authErr,
                     );
                 }
-            });
+            }).finally(() => this.localOperations.delete(pending));
+            this.localOperations.add(pending);
         };
 
         this.disposables.push(
@@ -707,6 +710,7 @@ export class SyncEngine {
     private queueLocalEvent(uri: vscode.Uri, run: (operation: () => Promise<void>) => void): void {
         try { if (!this.shouldSync(this.getRelativePath(uri))) return; }
         catch { return; }
+        this.localChangeGeneration++;
         const key = uri.toString();
         clearTimeout(this.localEventTimers.get(key));
         this.localEventTimers.set(key, setTimeout(() => {
@@ -782,6 +786,8 @@ export class SyncEngine {
         const normalized = normalizeProjectPath(relativePath).toLowerCase();
         if (
             normalized === '/.leafignore'
+            || normalized === '/.output'
+            || normalized.startsWith('/.output/')
             || normalized === '/.localleaf'
             || normalized === '/.localleaf/'
             || normalized.startsWith('/.localleaf/')
@@ -795,6 +801,98 @@ export class SyncEngine {
             return false;
         }
         return !this.ignoreParser.shouldIgnore(relativePath);
+    }
+
+    /** Verify saved bytes against server-confirmed baselines, never against UI status. */
+    async prepareForCompile(token: vscode.CancellationToken): Promise<{ ready: boolean; fingerprint?: string; message?: string }> {
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const result = await this.prepareForCompileAttempt(token);
+            if (!result.retry) return result;
+        }
+        return { ready: false, message: 'Project files are still changing. Save or run Sync Now and retry compilation.' };
+    }
+
+    private async prepareForCompileAttempt(token: vscode.CancellationToken): Promise<{
+        ready: boolean; fingerprint?: string; message?: string; retry?: boolean;
+    }> {
+        const check = () => {
+            this.throwIfDisposed();
+            if (token.isCancellationRequested) throw new Error('Compilation cancelled.');
+            if (!this.project || this.authenticationRequired || this.recoveryRequired || this.socket?.isConnected === false) {
+                throw new Error('Synchronization is not ready. Reconnect or run Sync Now first.');
+            }
+        };
+        try {
+            check();
+            await this.activePull;
+            await this.remoteEventQueue;
+            await this.ignoreParser.load();
+            for (const timer of this.localEventTimers.values()) clearTimeout(timer);
+            this.localEventTimers.clear();
+            await Promise.all([...this.localOperations]);
+            const generation = this.localChangeGeneration;
+            const files: string[] = [];
+            let count = 0;
+            const scan = async (uri: vscode.Uri, parent = '/', depth = 0): Promise<void> => {
+                check();
+                if (depth > MAX_LOCAL_SCAN_DEPTH) throw new Error('Project directory tree is too deep.');
+                await this.assertNoSymbolicLinks(uri);
+                for (const [name, type] of await vscode.workspace.fs.readDirectory(uri)) {
+                    if (++count > MAX_LOCAL_SCAN_ENTITIES) throw new Error('Project contains too many files.');
+                    const directory = (type & vscode.FileType.Directory) !== 0;
+                    const relative = parent + name + (directory ? '/' : '');
+                    if (!this.shouldSync(relative)) continue;
+                    if ((type & vscode.FileType.SymbolicLink) !== 0) throw new Error(`Cannot compile with a symbolic link: ${relative}`);
+                    const child = this.settings.getFilePath(relative);
+                    if (directory) await scan(child, relative, depth + 1);
+                    else files.push(relative);
+                }
+            };
+            await scan(this.settings.getWorkspaceFolder());
+            for (const file of files) {
+                check();
+                const uri = this.settings.getFilePath(file);
+                if (this.hasDirtyDocument(uri)) throw new Error(`Save ${file} before compiling.`);
+                const bytes = await this.readLocalFile(uri);
+                if (hashContent(bytes) === this.getBaseHashes().get(file) && this.fileTreeByPath.has(file)) continue;
+                if (!this.automaticSyncEnabled) throw new Error('Local changes are not synchronized. Run Sync Now before compiling.');
+                if (this.fileTreeByPath.has(file)) await this.handleLocalFileChange(uri);
+                else await this.handleLocalFileCreate(uri);
+            }
+            for (const entry of [...this.fileTree.values()].sort((a, b) => a.path.length - b.path.length)) {
+                check();
+                // The root is a reference entry with a pull baseline, not a deletable entity.
+                if (entry.path === '/') continue;
+                if (!this.shouldSync(entry.path) || !this.baseContent.has(entry.path)) continue;
+                const uri = this.settings.getFilePath(entry.path);
+                if (!(await this.localFileExists(uri))) {
+                    if (!this.automaticSyncEnabled) throw new Error('Local deletions are not synchronized. Run Sync Now first.');
+                    await this.handleLocalFileDelete(uri);
+                }
+            }
+            await this.remoteEventQueue;
+            return await this.runWorkspaceExclusive(async () => {
+                check();
+                if (this.pendingConflicts.size || this.backgroundChoices.size || this.fileErrors.size || this.pendingLocalCreates.size) {
+                    throw new Error('Resolve pending synchronization conflicts or errors before compiling.');
+                }
+                const digest = createHash('sha256');
+                for (const file of files.sort()) {
+                    check();
+                    const uri = this.settings.getFilePath(file);
+                    await this.assertNoSymbolicLinks(uri);
+                    const hash = hashContent(await this.readLocalFile(uri));
+                    if (this.hasDirtyDocument(uri) || !this.fileTreeByPath.has(file) || hash !== this.getBaseHashes().get(file)) {
+                        throw new Error(`Synchronization has not confirmed ${file}. Save or run Sync Now and retry.`);
+                    }
+                    digest.update(JSON.stringify([file, hash]));
+                }
+                if (generation !== this.localChangeGeneration) return { ready: false, retry: true };
+                return { ready: true, fingerprint: digest.digest('hex') };
+            });
+        } catch (error) {
+            return { ready: false, message: errorMessage(error) };
+        }
     }
 
     /**
@@ -3698,7 +3796,7 @@ export class SyncEngine {
 
     /** Collapse fully ignored subtrees into one server-side folder deletion. */
     private getIgnoredRemoteRoots(): FileTreeEntry[] {
-        const entries = [...this.fileTree.values()];
+        const entries = [...this.fileTree.values()].filter(entry => !/^\/\.output(?:\/|$)/i.test(entry.path));
         const ignored = new Set(entries.filter(entry => entry.path !== '/'
             && entry.id !== this.project?.rootDoc_id && this.ignoreParser.shouldIgnore(entry.path))
             .map(entry => entry.path));

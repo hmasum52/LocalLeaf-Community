@@ -3,6 +3,7 @@
 .tmp-*/**
 .github/**
 .localleaf/**
+.output/**
 .leafignore
 main.tex
 .mailmap

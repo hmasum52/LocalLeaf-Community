@@ -17,6 +17,7 @@ import {
     validateRemoteDocumentLines,
 } from '../utils/remoteValidation';
 import { conciseErrorMessage, httpErrorMessage } from '../utils/errorMessages';
+import { CompileAPI } from '../compile/compileApi';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const MAX_API_RESPONSE_BYTES = 10 * 1024 * 1024;
@@ -483,6 +484,9 @@ export class BaseAPI {
         route: string,
         options: RequestInit,
         maxResponseBytes: number = MAX_API_RESPONSE_BYTES,
+        timeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
+        signal?: AbortSignal,
+        absoluteUrl?: string,
     ): Promise<Response> {
         if (this.disposed) {
             throw new Error('Overleaf request cancelled because the sync session was closed.');
@@ -495,20 +499,24 @@ export class BaseAPI {
             throw new Error('Overleaf request cancelled because the sync session was closed.');
         }
         const controller = new AbortController();
+        const cancel = () => controller.abort();
+        signal?.addEventListener('abort', cancel, { once: true });
+        if (signal?.aborted) controller.abort();
         this.activeRequests.add(controller);
-        const timeout = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
         let released = false;
         const release = () => {
             if (released) return;
             released = true;
             clearTimeout(timeout);
+            signal?.removeEventListener('abort', cancel);
             this.activeRequests.delete(controller);
         };
 
         try {
-            const response = await fetch(this.url + route, {
+            const response = await fetch(absoluteUrl ?? this.url + route, {
                 redirect: 'manual',
-                agent: this.agent,
+                agent: absoluteUrl ? (new URL(absoluteUrl).protocol === 'https:' ? https.globalAgent : http.globalAgent) : this.agent,
                 ...options,
                 signal: controller.signal,
                 size: maxResponseBytes,
@@ -529,6 +537,16 @@ export class BaseAPI {
             }
             throw error;
         }
+    }
+
+    /** Uses the current identity and shares request cancellation with this session. */
+    get compile(): CompileAPI {
+        return new CompileAPI(this.url, () => this.identity,
+            (route, options, maximum, timeout, signal, absolute) => this.fetchRoute(route, options, maximum, timeout, signal, absolute),
+            async response => {
+                const failure = await this.responseError(response);
+                throw new ApiHttpError(failure.message || 'Compilation request failed', response.status, failure.authError);
+            });
     }
 
     private async responseError(response: Response): Promise<ResponseSchema> {
