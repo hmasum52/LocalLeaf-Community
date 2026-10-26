@@ -23,9 +23,12 @@ const Module = require('module') as {
 };
 const originalLoad = Module._load;
 
-function readInstalledPackageVersion(...packagePath: string[]): string {
+function readInstalledPackageVersion(
+    packageName: string,
+    resolveFrom = path.join(__dirname, '..', '..'),
+): string {
     const packageJson = JSON.parse(fs.readFileSync(
-        path.join(__dirname, '..', '..', 'node_modules', ...packagePath, 'package.json'),
+        require.resolve(`${packageName}/package.json`, { paths: [resolveFrom] }),
         'utf8',
     )) as { version?: string };
     assert.equal(typeof packageJson.version, 'string');
@@ -4261,16 +4264,14 @@ async function run(): Promise<void> {
     assert.equal(readInstalledPackageVersion('form-data'), '4.0.6');
     assert.equal(readInstalledPackageVersion('minimatch'), '9.0.9');
     assert.equal(readInstalledPackageVersion('ws'), '5.2.7');
-    assert.deepStrictEqual(readLockedPackageVersions('brace-expansion'), ['1.1.18', '2.1.4']);
+    assert.deepStrictEqual(readLockedPackageVersions('brace-expansion'), ['1.1.21', '2.1.7']);
     assert.deepStrictEqual(readLockedPackageVersions('minimatch'), ['3.1.5', '9.0.9']);
     assert.deepStrictEqual(readLockedPackageVersions('form-data'), ['4.0.6']);
     assert.deepStrictEqual(readLockedPackageVersions('ws'), ['5.2.7']);
     assert.equal(
         readInstalledPackageVersion(
-            '@typescript-eslint',
-            'typescript-estree',
-            'node_modules',
             'minimatch',
+            path.dirname(require.resolve('@typescript-eslint/typescript-estree')),
         ),
         '9.0.9',
         'the development toolchain must not restore the vulnerable minimatch release',
