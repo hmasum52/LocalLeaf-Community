@@ -36,7 +36,8 @@
   "activationEvents": [
     "workspaceContains:.localleaf",
     "onView:localleaf.projectsView",
-    "onView:localleaf.mainView"
+    "onView:localleaf.mainView",
+    "onWebviewPanel:localleaf.pdfPreview"
   ],
   "capabilities": {
     "untrustedWorkspaces": {
@@ -143,6 +144,39 @@
       {
         "command": "localleaf.removeComments",
         "title": "LocalLeaf: Remove Standalone LaTeX Comments"
+      },
+      {
+        "command": "localleaf.previewPdf",
+        "title": "LocalLeaf: Preview PDF",
+        "enablement": "localleaf.isLinked",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "localleaf.compileProject",
+        "title": "LocalLeaf: Compile Project",
+        "enablement": "localleaf.isLinked",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "localleaf.stopCompile",
+        "title": "LocalLeaf: Stop Compilation",
+        "enablement": "localleaf.isLinked",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "localleaf.syncToPdf",
+        "title": "LocalLeaf: Sync Source to PDF",
+        "enablement": "localleaf.isLinked"
+      },
+      {
+        "command": "localleaf.showCompileLog",
+        "title": "LocalLeaf: Show Compilation Log",
+        "enablement": "localleaf.isLinked"
+      },
+      {
+        "command": "localleaf.savePdf",
+        "title": "LocalLeaf: Save PDF",
+        "enablement": "localleaf.isLinked"
       }
     ],
     "configuration": {
@@ -157,8 +191,34 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically upload local file changes to Overleaf"
+        },
+        "localleaf.compileOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Compile saved TeX, bibliography, and style files on Overleaf while PDF preview is open."
+        },
+        "localleaf.compileTimeoutSeconds": {
+          "type": "number",
+          "default": 180,
+          "minimum": 30,
+          "maximum": 1800,
+          "description": "Timeout for Overleaf compilation requests in seconds."
         }
       }
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "command": "localleaf.compileProject",
+          "when": "localleaf.isLinked && resourceExtname == .tex",
+          "group": "navigation@5"
+        },
+        {
+          "command": "localleaf.previewPdf",
+          "when": "localleaf.isLinked && resourceExtname == .tex",
+          "group": "navigation@6"
+        }
+      ]
     }
   },
   "scripts": {

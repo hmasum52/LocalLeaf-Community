@@ -37,6 +37,7 @@ import { BrowserPreference, captureCookiesViaBrowserLogin } from './auth/browser
 import { createWindowFocusListener, isSyncInitializationSnapshotCurrent } from './utils/syncInitialization';
 import { CreateProjectController } from './views/createProjectController';
 import { consumeCreatedProjectSyncAuthorization } from './utils/createdProjectAuthorization';
+import { CompileManager } from './compile/compileManager';
 
 /**
  * Auth state type
@@ -48,6 +49,8 @@ type AuthState = 'valid' | 'expired' | 'unknown' | 'none';
  */
 let credentialManager: CredentialManager;
 let syncEngine: SyncEngine | undefined;
+let compileManager: CompileManager | undefined;
+let restoredPdf: { panel: vscode.WebviewPanel; key: string } | undefined;
 let cursorTracker: CursorTracker | undefined;
 let statusBarItem: vscode.StatusBarItem;
 let loginStatusItem: vscode.StatusBarItem;
@@ -180,6 +183,8 @@ function disposeCurrentSyncSession(): void {
     // Invalidate initializations that are waiting on SecretStorage or another
     // asynchronous prerequisite before they have an engine to dispose.
     syncSessionGeneration++;
+    compileManager?.dispose();
+    compileManager = undefined;
     const engine = syncEngine;
     syncEngine = undefined;
     syncStatusSubscription?.dispose();
@@ -448,7 +453,34 @@ function startInitialSync(context: vscode.ExtensionContext, settings: SettingsMa
  * Register all commands
  */
 function registerCommands(context: vscode.ExtensionContext) {
+    const compileAction = async (action: (manager: CompileManager) => Promise<void>) => {
+        if (!compileManager) {
+            void vscode.window.showWarningMessage('LocalLeaf: Link a project and wait for synchronization before using PDF preview.');
+            return;
+        }
+        try { await action(compileManager); }
+        catch (error) { void vscode.window.showErrorMessage(`LocalLeaf PDF: ${errorMessage(error)}`); }
+    };
     context.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer('localleaf.pdfPreview', {
+            async deserializeWebviewPanel(panel, state: unknown) {
+                const key = state && typeof state === 'object' ? (state as { projectKey?: unknown }).projectKey : undefined;
+                if (typeof key !== 'string') { panel.dispose(); return; }
+                if (compileManager) {
+                    if (compileManager.identityKey === key) await compileManager.preview(panel);
+                    else panel.dispose();
+                } else {
+                    restoredPdf?.panel.dispose();
+                    restoredPdf = { panel, key };
+                }
+            },
+        }),
+        vscode.commands.registerCommand(COMMANDS.PREVIEW_PDF, () => compileAction(manager => manager.preview())),
+        vscode.commands.registerCommand(COMMANDS.COMPILE_PROJECT, () => compileAction(manager => manager.compile())),
+        vscode.commands.registerCommand(COMMANDS.STOP_COMPILE, () => compileAction(manager => manager.stop())),
+        vscode.commands.registerCommand(COMMANDS.SYNC_TO_PDF, () => compileAction(manager => manager.syncToPdf())),
+        vscode.commands.registerCommand(COMMANDS.SHOW_COMPILE_LOG, () => compileAction(manager => manager.showLog())),
+        vscode.commands.registerCommand(COMMANDS.SAVE_PDF, () => compileAction(manager => manager.savePdf())),
         vscode.commands.registerCommand(COMMANDS.LOGIN, () => cmdShowAccountPanel(context)),
         vscode.commands.registerCommand(COMMANDS.LOGOUT, cmdLogoutFromCommand),
         vscode.commands.registerCommand(COMMANDS.SHOW_ACCOUNT_PANEL, () => cmdShowAccountPanel(context)),
@@ -513,6 +545,18 @@ async function initializeSync(context: vscode.ExtensionContext, settings: Settin
     // Create sync engine
     const engine = new SyncEngine(api, settings, log, context.globalStorageUri);
     syncEngine = engine;
+    compileManager = new CompileManager(context, api, engine, settings,
+        () => syncEngine === engine && isCurrentSyncInitialization(initializationGeneration, settings, initializationSyncKey),
+        () => {
+            void setAuthState('expired', projectSettings.serverUrl);
+            void showSessionExpiredNotification(projectSettings.serverUrl);
+        });
+    if (restoredPdf) {
+        const restored = restoredPdf;
+        restoredPdf = undefined;
+        if (restored.key === compileManager.identityKey) void compileManager.preview(restored.panel);
+        else restored.panel.dispose();
+    }
 
     // Listen to status changes
     listenForSyncStatus(engine, projectSettings.serverUrl);
@@ -564,6 +608,7 @@ async function initializeSync(context: vscode.ExtensionContext, settings: Settin
             log(`Auto-pull failed: ${pullError}`);
             // Don't show error for auto-pull, user can manually pull
         }
+        if (!abandonStaleSyncEngine(engine, initializationGeneration, settings, initializationSyncKey)) compileManager?.start();
     } catch (error) {
         if (syncEngine !== engine) return;
         log(`Failed to connect: ${error}`);
@@ -1436,6 +1481,7 @@ async function cmdPullFromOverleaf() {
             await engine.joinAllDocsForWatching();
         });
         if (deactivating || syncEngine !== engine) return;
+        compileManager?.start();
         void vscode.window.showInformationMessage('LocalLeaf: Pull complete');
     } catch (error) {
         if (deactivating || syncEngine !== engine) return;
@@ -1981,6 +2027,8 @@ async function waitForBrowserLoginCleanup(task: Promise<unknown>, timeoutMs: num
 
 export async function deactivate(): Promise<void> {
     deactivating = true;
+    restoredPdf?.panel.dispose();
+    restoredPdf = undefined;
     projectCreationController?.dispose();
     projectCreationController = undefined;
     projectCreationLocalFolders.clear();

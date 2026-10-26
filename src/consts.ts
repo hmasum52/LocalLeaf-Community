@@ -52,6 +52,12 @@ export const STATUS_BAR_PRIORITY = 100;
 
 // Commands
 export const COMMANDS = {
+    PREVIEW_PDF: 'localleaf.previewPdf',
+    COMPILE_PROJECT: 'localleaf.compileProject',
+    STOP_COMPILE: 'localleaf.stopCompile',
+    SYNC_TO_PDF: 'localleaf.syncToPdf',
+    SHOW_COMPILE_LOG: 'localleaf.showCompileLog',
+    SAVE_PDF: 'localleaf.savePdf',
     LOGIN: 'localleaf.login',
     LOGOUT: 'localleaf.logout',
     SHOW_ACCOUNT_PANEL: 'localleaf.showAccountPanel',

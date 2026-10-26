@@ -40,6 +40,7 @@ export async function runSyncRecoveryTests(): Promise<void> {
                     },
                 },
                 window: {
+                    registerWebviewPanelSerializer: () => ({ dispose() {} }),
                     withProgress: async (_options: unknown, operation: () => Promise<void>) => operation(),
                     showQuickPick: (items: any[], options: any) => pickCleanup(items, options),
                     showInformationMessage: async (message: string) => { messages.push(message); },

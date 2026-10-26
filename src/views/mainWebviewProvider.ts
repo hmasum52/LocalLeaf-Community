@@ -51,6 +51,8 @@ type MainWebviewMessage =
     | { type: 'jumpToUser'; clientId: string };
 
 const ALLOWED_COMMANDS = new Set<string>([
+    COMMANDS.PREVIEW_PDF,
+    COMMANDS.COMPILE_PROJECT,
     COMMANDS.CREATE_PROJECT,
     COMMANDS.SYNC_NOW,
     COMMANDS.PULL_FROM_OVERLEAF,
@@ -371,6 +373,8 @@ export class MainWebviewProvider implements vscode.WebviewViewProvider {
         let restoreFocus = null;
 
         const tools = [
+            { icon: 'PDF', label: 'Preview PDF', copy: 'Open the compiled Overleaf PDF', command: '${COMMANDS.PREVIEW_PDF}' },
+            { icon: '▶', label: 'Compile project', copy: 'Compile on Overleaf and save to .output', command: '${COMMANDS.COMPILE_PROJECT}' },
             { icon: '+', label: 'Create New Project', copy: 'Create a blank project on Overleaf', command: '${COMMANDS.CREATE_PROJECT}' },
             { icon: '↻', label: 'Sync now', copy: 'Pull the latest Overleaf state', command: '${COMMANDS.SYNC_NOW}' },
             { icon: '↓', label: 'Pull from Overleaf', copy: 'Refresh all project files', command: '${COMMANDS.PULL_FROM_OVERLEAF}' },
