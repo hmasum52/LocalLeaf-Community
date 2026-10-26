@@ -26,9 +26,13 @@ The idea is deliberately simple: write with the local tools you already like, an
 - Recover synchronization baselines and pending document writes after restarting VS Code
 - Ignore build output and other generated files through `.leafignore`
 - Preview and remove ignored folders or files that exist only on Overleaf, while keeping local files
-- Work alongside LaTeX Workshop for local compilation and PDF preview
+- Compile on Overleaf and preview PDFs inside VS Code, with search, navigation, and bidirectional SyncTeX
+- Keep the last successful PDF and compilation log locally in `.output`
+- Work alongside LaTeX Workshop for local compilation
 
 ## Installation
+
+Requires VS Code **1.143.1 or later** for the bundled modern PDF.js viewer.
 
 Install [LocalLeaf Community from the Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=victorstoica114.localleaf-community), or search for `LocalLeaf Community` in the VS Code Extensions view.
 
@@ -38,6 +42,7 @@ To build the extension yourself:
 
 ```powershell
 npm install
+npm run vendor:pdfjs
 npm test
 npx @vscode/vsce package
 ```
@@ -70,10 +75,32 @@ Dismissed or ignored prompts for unchanged local-only files stay quiet during th
 
 Browser login uses a temporary, isolated Chromium profile and removes it after the session is captured. If cleanup is blocked by another process, LocalLeaf reports the exact temporary folder so you can remove it manually. If the extension is running on a remote extension host (Remote SSH, WSL, or a Dev Container), use the manual cookie option because the browser cannot be opened safely on your local desktop from that host.
 
+## PDF preview
+
+Open **Preview PDF** from the LocalLeaf sidebar or a TeX editor's title bar. LocalLeaf saves the linked project's documents, waits for Overleaf to confirm uploads, then compiles using the selected main document and the server's compiler. No local TeX installation is required.
+
+While the preview is open, saving `.tex`, `.bib`, `.sty`, or `.cls` files schedules a rebuild. Disable this with `localleaf.compileOnSave`. `localleaf.compileTimeoutSeconds` defaults to 180 seconds. If automatic synchronization is disabled, use **Sync Now** to synchronize changes before compiling.
+
+The viewer includes search, page navigation, zoom, rotation, thumbnails, outline, and scroll/spread modes. Run **Sync Source to PDF** from a source editor to jump into the preview; double-click a PDF page to return to its source. Keyboard shortcuts are left unassigned so they can coexist with LaTeX Workshop.
+
+Each newly opened or restored preview starts with the sidebar closed. Open it manually to show thumbnails or the outline; that choice is retained during rebuilds in the same preview. Page position, zoom, and other reading preferences survive reopening. Saved PDFs display while synchronization and any necessary remote compilation run.
+
+Each linked project keeps `.output/output.pdf`, `.output/output.log`, and `.output/.localleaf-preview.json`. Failed compilations preserve the last successful PDF. The metadata identifies its project and build without storing credentials or signed URLs. Output survives restarts and unlinking. `.output` is always excluded from synchronization, including when `.leafignore` has negation rules; add it to your own `.gitignore` if needed. Existing files without matching LocalLeaf ownership metadata are preserved and reported as conflicts. **Save PDF** exports an additional copy.
+
+The PDF.js 6.4.299 modern distribution is bundled into the VSIX with its licenses. Its downloaded files in `resources/pdfjs/` are ignored by Git. After cloning, run `npm ci` and `npm run vendor:pdfjs` before building, testing, or packaging. The download script verifies the pinned release archive's SHA-256 before extraction; it requires internet access during setup. Viewer assets require no runtime CDN access, and an installed VSIX works without downloading PDF.js.
+
+For development, `npm test` includes the transport, output ownership, synchronization barrier, and asset checks. After packaging `localleaf-community-pdf-preview.vsix`, `npm run test:pdf:host` installs it in a temporary VS Code profile and tests the actual webview against a synthetic compiler with LaTeX Workshop active. On Windows the runner finds the standard user installation; set `LOCALLEAF_VSCODE_PATH` or `LOCALLEAF_EXTENSIONS_PATH` to override the installation directories. The browser harness starts with `npm run test:pdf:browser`; run `playwright-cli open http://127.0.0.1:43129` and `playwright-cli run-code --filename=scripts/pdf-preview-browser-check.cjs` to exercise its controls. Run `scripts/pdf-preview-startup-check.cjs` through the same `run-code --filename` command in a fresh browser session to check cold startup, parallel asset requests, stale sidebar preferences, duplicate PDF messages, and worker reuse with simulated asset latency.
+
 ## Commands
 
 | Command | What it does |
 |---------|--------------|
+| `LocalLeaf: Preview PDF` | Opens the compiled PDF beside the source; compiles when needed |
+| `LocalLeaf: Compile Project` | Saves project documents, waits for confirmed synchronization, and compiles on Overleaf |
+| `LocalLeaf: Stop Compilation` | Cancels the current LocalLeaf compilation |
+| `LocalLeaf: Sync Source to PDF` | Reveals the source cursor's position in the PDF |
+| `LocalLeaf: Show Compilation Log` | Opens the latest compilation log |
+| `LocalLeaf: Save PDF` | Exports the last successful PDF to another location |
 | `LocalLeaf: Login` | Opens the Account panel for browser or manual-cookie login |
 | `LocalLeaf: Logout` | Removes the stored credentials |
 | `LocalLeaf: Verify Credentials` | Checks whether the current session is still valid |

@@ -17,6 +17,7 @@ If a change is large or changes synchronization behavior, please open an issue f
 
 ```powershell
 npm install
+npm run vendor:pdfjs
 npm test
 npm run package
 npx @vscode/vsce package
