@@ -168,3 +168,11 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Mozilla PDF.js viewer
+
+This extension bundles the unmodified modern PDF.js 6.4.299 distribution from
+https://github.com/mozilla/pdf.js/releases/tag/v6.4.299 under the Apache License 2.0.
+The distribution's license, including the Adobe CMap attribution, is included at
+`resources/pdfjs/LICENSE`. Its verified archive URL and SHA-256 are recorded in
+`resources/pdfjs/PROVENANCE.json`. LocalLeaf's viewer adapter and styling are
+maintained separately from these upstream assets.

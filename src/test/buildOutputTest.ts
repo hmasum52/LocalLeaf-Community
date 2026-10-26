@@ -9,9 +9,25 @@ import { createTemporaryWorkspace, cleanTemporaryWorkspaces } from './temporaryW
 
 async function run(): Promise<void> {
     const directory = await createTemporaryWorkspace('build-output');
-    const { getBuildOptions } = require('../../esbuild.js') as { getBuildOptions(): esbuild.BuildOptions };
+    const { getBuildOptions, getViewerBuildOptions } = require('../../esbuild.js') as {
+        getBuildOptions(): esbuild.BuildOptions; getViewerBuildOptions(): esbuild.BuildOptions;
+    };
     await esbuild.build({ ...getBuildOptions(), outdir: directory, sourcemap: false, minify: true });
     assert.deepEqual((await fs.readdir(directory)).sort(), ['extension.js', 'textMergeWorker.js']);
+    const viewerDirectory = path.join(directory, 'pdf-preview');
+    await esbuild.build({ ...getViewerBuildOptions(), outdir: viewerDirectory, sourcemap: false, minify: true });
+    await fs.copyFile('webviews/pdf-preview/index.css', path.join(viewerDirectory, 'index.css'));
+    assert.deepEqual((await fs.readdir(viewerDirectory)).sort(), ['index.css', 'index.js']);
+    const provenance = JSON.parse(await fs.readFile('resources/pdfjs/PROVENANCE.json', 'utf8'));
+    assert.equal(provenance.version, '6.4.299');
+    assert.equal(provenance.build, 'modern');
+    for (const asset of ['LICENSE', 'build/pdf.mjs', 'build/pdf.worker.mjs', 'web/viewer.html', 'web/viewer.mjs',
+        'web/viewer.css', 'web/locale/locale.json', 'web/locale/en-US/viewer.ftl']) {
+        assert.ok((await fs.stat(path.join('resources/pdfjs', asset))).size > 0, `Missing packaged PDF asset ${asset}`);
+    }
+    for (const directory of ['cmaps', 'standard_fonts', 'wasm', 'images']) {
+        assert.ok((await fs.readdir(path.join('resources/pdfjs/web', directory))).length > 0);
+    }
     const worker = new Worker(path.join(directory, 'textMergeWorker.js'), {
         workerData: { base: 'first\nseparator\nlast\n', local: 'FIRST\nseparator\nlast\n', remote: 'first\nseparator\nLAST\n' },
     });

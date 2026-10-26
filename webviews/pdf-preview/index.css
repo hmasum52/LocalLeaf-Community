@@ -1,0 +1,20 @@
+:root { --localleaf-toolbar-height: 38px; }
+body { margin: 0; padding: 0; overflow: hidden; }
+#localleafToolbar { height: var(--localleaf-toolbar-height); box-sizing: border-box; padding: 4px 8px; display: flex; align-items: center; gap: 6px; color: var(--vscode-foreground); background: var(--vscode-editor-background); border-bottom: 1px solid var(--vscode-panel-border); font: var(--vscode-font-size) var(--vscode-font-family); }
+#localleafToolbar button { font: inherit; padding: 4px 8px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 3px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; white-space: nowrap; }
+#localleafToolbar button:hover { background: var(--vscode-button-secondaryHoverBackground); }
+#localleafToolbar button:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+#localleafToolbar button:disabled { opacity: .5; cursor: default; }
+#localleafCompile { background: var(--vscode-button-background) !important; color: var(--vscode-button-foreground) !important; }
+#localleafToolbar button { flex-shrink: 0; }
+#localleafStatus { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#localleafStatus[data-state=failed] { color: var(--vscode-errorForeground); }
+#outerContainer { position: absolute; top: var(--localleaf-toolbar-height); height: calc(100% - var(--localleaf-toolbar-height)); }
+#mainContainer { min-width: 0; }
+#toolbarContainer { padding-inline: 8px; }
+#toolbarContainer #toolbarViewer #toolbarViewerLeft { margin-inline-start: 0; }
+#secondaryToolbar { max-width: calc(100vw - 16px); }
+#printButton, #secondaryPrint, #editorModeButtons, #editorModeSeparator, #openFile, #secondaryOpenFile, #downloadButton, #secondaryDownload, #viewsManagerAddFileButton, #viewsManagerActionButton { display: none !important; }
+.localleafHighlight { position: absolute; background: color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground, #ffd700) 65%, transparent); outline: 2px solid var(--vscode-focusBorder, #0088ff); pointer-events: none; z-index: 20; }
+.localleafSnapshot { position: fixed; z-index: 100; pointer-events: none; background: var(--vscode-editor-background); overflow: hidden; }
+@media (max-width: 600px) { :root { --localleaf-toolbar-height: 68px; } #localleafToolbar { flex-wrap: wrap; } #localleafStatus { flex-basis: 100%; } }

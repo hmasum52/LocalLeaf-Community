@@ -5,6 +5,7 @@ dist/
 
 # Dependencies
 node_modules/
+/resources/pdfjs/
 
 # TypeScript
 *.tsbuildinfo
@@ -36,5 +37,6 @@ test-workspace/
 # LocalLeaf link metadata for this development checkout
 .localleaf/
 .output/
+.playwright-cli/
 .leafignore
 /test/

@@ -2,6 +2,7 @@
 .vscode-test/**
 .tmp-*/**
 .github/**
+.playwright-cli/**
 .localleaf/**
 .output/**
 .leafignore
@@ -16,6 +17,10 @@ node_modules/**
 dist/**
 !dist/extension.js
 !dist/textMergeWorker.js
+!dist/pdf-preview/index.js
+!dist/pdf-preview/index.css
+webviews/**
+scripts/**
 images/*.svg
 !images/icon.svg
 images/status-bar.png
