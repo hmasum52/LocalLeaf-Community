@@ -85,7 +85,7 @@ Module._load = function(request: string, parent: unknown, main: boolean) {
 const { SyncEngine } = require('../sync/syncEngine');
 const { BaseAPI } = require('../api/base');
 Module._load = originalLoad;
-export { TestUri, SyncEngine, BaseAPI, promptMessages };
+export { TestUri, SyncEngine, BaseAPI, promptMessages, mockVscode };
 
 export async function eventually(check: () => Promise<boolean>, label: string, timeout = 45_000): Promise<void> {
     const deadline = Date.now() + timeout;
