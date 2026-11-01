@@ -3944,6 +3944,40 @@ async function run(): Promise<void> {
     assert.equal(detectedProjects[0].relativePath, 'project-a');
     assert.equal(detectedProjects[0].settings.projectId, 'detected-project-id');
 
+    const { resolveLinkTarget } = require(path.join('..', 'utils', 'settingsManager')) as {
+        resolveLinkTarget(root: MockUri, input: string): Promise<MockUri>;
+    };
+    assert.equal(await resolveLinkTarget(workspaceRoot, ''), workspaceRoot, 'empty input links the workspace root');
+    assert.equal(await resolveLinkTarget(workspaceRoot, ' . '), workspaceRoot);
+    assert.equal(mockUriKey(await resolveLinkTarget(workspaceRoot, 'papers\\thesis/')),
+        'D:\\workspace\\papers\\thesis', 'nested relative paths resolve under the root');
+    for (const bad of ['../x', 'a/../../x', '/abs', 'C:\\x', '.localleaf', 'a//b', 'a/.git']) {
+        await assert.rejects(resolveLinkTarget(workspaceRoot, bad), /Invalid folder/, `rejects ${bad}`);
+    }
+    SettingsManager.clearCurrentWorkspaceFolder();
+    const nestedManager = await SettingsManager.resolveCurrentInstance();
+    assert.equal(mockUriKey(nestedManager!.getWorkspaceFolder()), 'D:\\workspace\\project-a',
+        'a single linked subfolder is restored when no root is linked');
+    resetMockWorkspace([workspaceRoot], [
+        ['D:\\workspace', { type: 2 }],
+        ['D:\\workspace\\a', { type: 2 }],
+        ['D:\\workspace\\a\\.localleaf', { type: 2 }],
+        ['D:\\workspace\\a\\.localleaf\\settings.json', { type: 1, content: linkedSettings }],
+        ['D:\\workspace\\b', { type: 2 }],
+        ['D:\\workspace\\b\\.localleaf', { type: 2 }],
+        ['D:\\workspace\\b\\.localleaf\\settings.json', { type: 1, content: linkedSettings }],
+    ]);
+    SettingsManager.clearCurrentWorkspaceFolder();
+    assert.equal(await SettingsManager.resolveCurrentInstance(), undefined,
+        'ambiguous linked subfolders are not auto-selected');
+    resetMockWorkspace([workspaceRoot], [
+        ['D:\\workspace', { type: 2 }],
+        ['D:\\workspace\\project-a', { type: 2 }],
+        ['D:\\workspace\\project-a\\.localleaf', { type: 2 }],
+        ['D:\\workspace\\project-a\\.localleaf\\settings.json', { type: 1, content: linkedSettings }],
+    ]);
+    SettingsManager.clearCurrentWorkspaceFolder();
+
     const noCredentialManager = {
         getDefaultServer: () => 'https://overleaf.example',
         getCredential: async () => undefined,

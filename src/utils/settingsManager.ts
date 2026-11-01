@@ -222,6 +222,11 @@ export class SettingsManager {
                 linkedRoots.push(folder.uri);
             }
         }
+        if (linkedRoots.length === 0) {
+            // ponytail: bounded scan; links nested deeper than LINK_SCAN_DEPTH aren't restored
+            const nested = await SettingsManager.findLinkedProjectFolders(LINK_SCAN_DEPTH);
+            if (nested.length === 1) linkedRoots.push(nested[0].uri);
+        }
         if (linkedRoots.length === 1) {
             SettingsManager.currentWorkspaceFolder = linkedRoots[0];
             return SettingsManager.getInstance(linkedRoots[0]);
@@ -476,6 +481,27 @@ export class SettingsManager {
             && name !== '.git'
             && name !== 'node_modules';
     }
+}
+
+const LINK_SCAN_DEPTH = 4;
+
+/**
+ * Resolve a user-typed folder (relative to the workspace root) to link a project into.
+ * Empty or "." means the root itself.
+ */
+export async function resolveLinkTarget(root: vscode.Uri, input: string): Promise<vscode.Uri> {
+    const trimmed = input.trim();
+    if (trimmed === '' || trimmed === '.') return root;
+    const segments = trimmed.replace(/\\/g, '/').replace(/\/+$/, '').split('/');
+    if (
+        /^([a-zA-Z]:|\/)/.test(trimmed.replace(/\\/g, '/'))
+        || segments.some(s => s === '' || s === '.' || s === '..' || s === CONFIG_DIR || s === '.git')
+    ) {
+        throw new Error(`Invalid folder "${input}". Use a path inside the workspace, e.g. papers/thesis.`);
+    }
+    const target = vscode.Uri.joinPath(root, ...segments);
+    await assertSafeWorkspacePath(root, target);
+    return target;
 }
 
 /**

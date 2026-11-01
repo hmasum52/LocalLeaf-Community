@@ -10,6 +10,7 @@ import { CredentialManager, ServerCredential } from './utils/credentialManager';
 import {
     SettingsManager,
     createSettingsWatcher,
+    resolveLinkTarget,
 } from './utils/settingsManager';
 import { BaseAPI, ProjectInfo } from './api/base';
 import { SyncEngine, SyncStatus } from './sync/syncEngine';
@@ -1189,6 +1190,59 @@ async function chooseWorkspaceFolder(): Promise<vscode.Uri | undefined> {
     return selection?.uri;
 }
 
+/** Pick (or type/paste) the folder inside `root` to link; undefined if cancelled. */
+async function chooseLinkTarget(root: vscode.Uri): Promise<vscode.Uri | undefined> {
+    // Breadth-first so shallow folders are never crowded out by a deep tree.
+    // ponytail: depth 4 / 2000 folders ceiling; deeper folders can still be typed
+    const names: string[] = [];
+    let level = [''];
+    for (let depth = 1; depth <= 4 && level.length > 0 && names.length < 2000; depth++) {
+        const next: string[] = [];
+        for (const relative of level) {
+            let entries: [string, vscode.FileType][];
+            try {
+                entries = await vscode.workspace.fs.readDirectory(
+                    relative ? vscode.Uri.joinPath(root, relative) : root);
+            } catch { continue; }
+            const dirs = entries
+                .filter(([name, type]) => (type & vscode.FileType.Directory) !== 0
+                    && (type & vscode.FileType.SymbolicLink) === 0
+                    && !name.startsWith('.') && name !== 'node_modules' && name !== '__pycache__')
+                .map(([name]) => relative ? `${relative}/${name}` : name);
+            names.push(...dirs);
+            next.push(...dirs);
+        }
+        level = next;
+    }
+    names.sort();
+
+    const rootItem = { label: '$(root-folder) Workspace root (default)', description: root.fsPath, value: '' };
+    const existing = names.map(name => ({ label: `$(folder) ${name}`, value: name }));
+    const picker = vscode.window.createQuickPick<{ label: string; description?: string; value: string }>();
+    picker.title = 'Folder for this Overleaf project';
+    picker.placeholder = 'Select a folder, or type/paste a path (created if missing)';
+    picker.items = [rootItem, ...existing];
+    picker.onDidChangeValue(value => {
+        const typed = value.trim();
+        picker.items = typed
+            ? [{ label: `$(new-folder) Use "${typed}"`, value: typed }, rootItem, ...existing]
+            : [rootItem, ...existing];
+    });
+    const choice = await new Promise<{ value: string } | undefined>(resolve => {
+        picker.onDidAccept(() => resolve(picker.selectedItems[0]));
+        picker.onDidHide(() => resolve(undefined));
+        picker.show();
+    });
+    picker.dispose();
+    if (!choice) return undefined;
+    try {
+        return await resolveLinkTarget(root, choice.value);
+    } catch (error) {
+        void vscode.window.showErrorMessage(`LocalLeaf: ${errorMessage(error)}`);
+        return undefined;
+    }
+}
+
 /**
  * Logout from Overleaf
  */
@@ -1290,7 +1344,11 @@ async function cmdLinkFolder(context: vscode.ExtensionContext, requestedProject?
             return;
         }
 
-        const settingsManager = SettingsManager.getInstance(workspaceFolder);
+        // A caller-supplied folder (project creation) is linked as-is.
+        const target = requestedWorkspaceFolder ? workspaceFolder : await chooseLinkTarget(workspaceFolder);
+        if (!target) return;
+
+        const settingsManager = SettingsManager.getInstance(target);
         if (await settingsManager.isLinked()) {
             void vscode.window.showWarningMessage(
                 'LocalLeaf: This folder is already linked. Unlink it before choosing another project.'
@@ -1349,7 +1407,10 @@ async function cmdLinkFolder(context: vscode.ExtensionContext, requestedProject?
             project = selected.project;
         }
 
-        const workspaceEntries = await vscode.workspace.fs.readDirectory(workspaceFolder);
+        let workspaceEntries: [string, vscode.FileType][] = [];
+        try {
+            workspaceEntries = await vscode.workspace.fs.readDirectory(target);
+        } catch { /* target does not exist yet; created after confirmation */ }
         const containsExistingContent = shouldConfirmProjectLink(
             workspaceEntries.map(([name]) => name)
         );
@@ -1358,7 +1419,7 @@ async function cmdLinkFolder(context: vscode.ExtensionContext, requestedProject?
             {
                 modal: true,
                 detail: [
-                    `Folder: ${workspaceFolder.fsPath}`,
+                    `Folder: ${target.fsPath}`,
                     `Server: ${serverUrl}`,
                     `Project: ${project.name}`,
                     '',
@@ -1382,14 +1443,16 @@ async function cmdLinkFolder(context: vscode.ExtensionContext, requestedProject?
         if (deactivating || !vscode.workspace.workspaceFolders?.some(folder =>
             folder.uri.toString() === workspaceFolder.toString())) return;
 
+        await vscode.workspace.fs.createDirectory(target); // no-op when it exists
+
         // Create settings
         const settings = SettingsManager.createDefaultSettings(serverUrl, project.id, project.name);
         await settingsManager.save(settings);
-        SettingsManager.setCurrentWorkspaceFolder(workspaceFolder);
+        SettingsManager.setCurrentWorkspaceFolder(target);
         await grantSyncAuthorization(context, settingsManager);
 
         // Create default .leafignore
-        const ignoreParser = new IgnoreParser(workspaceFolder);
+        const ignoreParser = new IgnoreParser(target);
         if (!(await ignoreParser.exists())) {
             await ignoreParser.createDefault();
         }
@@ -1398,7 +1461,7 @@ async function cmdLinkFolder(context: vscode.ExtensionContext, requestedProject?
 
         // Show status bars now that we're linked
         await vscode.commands.executeCommand('setContext', 'localleaf.isLinked', true);
-        configureSettingsWatcher(context, workspaceFolder);
+        configureSettingsWatcher(context, target);
         statusBarItem.show();
         await updateLoginStatus();
         await mainWebviewProvider.refresh();
